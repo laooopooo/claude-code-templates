@@ -12,10 +12,17 @@ class DataLoader {
         this.TIMEOUT_MS = 8000; // 8 seconds timeout
         this.ITEMS_PER_PAGE = 50; // Lazy loading batch size
     }
+    
+    // Get data file paths (always absolute for production)
+    getDataPath(filename) {
+        return '/' + filename;
+    }
 
     // Load all components at once (simplified approach)
     async loadAllComponents() {
         try {
+            console.log('DataLoader: Loading components from:', this.getDataPath('components.json'));
+            
             this.loadingStates.components = true;
             this.showLoadingState('components', true);
             
@@ -29,7 +36,7 @@ class DataLoader {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), this.TIMEOUT_MS);
             
-            const response = await fetch('components.json', {
+            const response = await fetch(this.getDataPath('components.json'), {
                 signal: controller.signal,
                 headers: {
                     'Cache-Control': 'max-age=300' // 5 minutes cache
@@ -89,7 +96,7 @@ class DataLoader {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), this.TIMEOUT_MS);
             
-            const response = await fetch('components.json', {
+            const response = await fetch(this.getDataPath('components.json'), {
                 signal: controller.signal,
                 headers: {
                     'Cache-Control': 'max-age=300' // 5 minutes cache
@@ -386,7 +393,7 @@ class DataLoader {
                 return this.metadataData;
             }
 
-            const response = await fetch('components-metadata.json', {
+            const response = await fetch(this.getDataPath('components-metadata.json'), {
                 headers: {
                     'Cache-Control': 'max-age=300' // 5 minutes cache
                 }

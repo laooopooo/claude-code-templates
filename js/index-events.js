@@ -13,6 +13,7 @@ class IndexPageManager {
     constructor() {
         this.currentFilter = 'agents';
         this.currentCategoryFilter = 'all';
+        this.currentSort = 'downloads'; // Default sort by downloads
         this.templatesData = null;
         this.componentsData = null;
         this.availableCategories = {
@@ -275,7 +276,40 @@ class IndexPageManager {
             });
         }
         
+        // Apply sorting
+        components = this.sortComponents(components);
+        
         return components;
+    }
+    
+    // Sort components based on current sort option
+    sortComponents(components) {
+        const sortedComponents = [...components]; // Create a copy to avoid mutating original
+        
+        if (this.currentSort === 'downloads') {
+            // Sort by downloads (descending) - components with no downloads go to the end
+            sortedComponents.sort((a, b) => {
+                const downloadsA = a.downloads || 0;
+                const downloadsB = b.downloads || 0;
+                return downloadsB - downloadsA;
+            });
+        } else if (this.currentSort === 'alphabetical') {
+            // Sort alphabetically by name
+            sortedComponents.sort((a, b) => {
+                const nameA = (a.name || '').toLowerCase();
+                const nameB = (b.name || '').toLowerCase();
+                return nameA.localeCompare(nameB);
+            });
+        }
+        
+        return sortedComponents;
+    }
+    
+    // Handle sort change from the dropdown
+    handleSortChange(sortValue) {
+        this.currentSort = sortValue;
+        this.currentPage = 1; // Reset to first page when changing sort
+        this.displayCurrentFilter();
     }
 
     // Collect available categories from loaded components
@@ -395,6 +429,9 @@ class IndexPageManager {
             });
         }
         
+        // Apply sorting to templates
+        filteredTemplates = this.sortComponents(filteredTemplates);
+        
         // Create template cards from the filtered list
         filteredTemplates.forEach(template => {
             const templateCard = this.createTemplateCardFromJSON(template);
@@ -487,10 +524,20 @@ class IndexPageManager {
         const categoryName = component.category || 'general';
         const categoryLabel = `<div class="category-label">${this.formatComponentName(categoryName)}</div>`;
         
+        // Create download badge if downloads data exists
+        const downloadBadge = component.downloads && component.downloads > 0 ? 
+            `<div class="download-badge" title="${component.downloads} downloads">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/>
+                </svg>
+                ${this.formatNumber(component.downloads)}
+            </div>` : '';
+        
         return `
             <div class="template-card" data-type="${component.type}">
                 <div class="card-inner">
                     <div class="card-front">
+                        ${downloadBadge}
                         ${categoryLabel}
                         <div class="framework-logo" style="color: ${config.color}">
                             <span class="component-icon">${config.icon}</span>
@@ -570,6 +617,15 @@ class IndexPageManager {
 
     formatComponentName(name) {
         return name.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    }
+
+    formatNumber(num) {
+        if (num >= 1000000) {
+            return (num / 1000000).toFixed(1) + 'M';
+        } else if (num >= 1000) {
+            return (num / 1000).toFixed(1) + 'K';
+        }
+        return num.toString();
     }
 
     truncateDescription(description, maxLength = 80) {
@@ -972,6 +1028,19 @@ class IndexPageManager {
 
 // Global function for copying is now handled by utils.js
 
+// Global function for handling sort change (called from onchange)
+function handleSortChange(sortValue) {
+    if (window.indexManager) {
+        window.indexManager.handleSortChange(sortValue);
+    }
+}
+
+// Global function for handling filter click with navigation
+function handleFilterClick(event, filter) {
+    event.preventDefault(); // Prevent default link navigation
+    setUnifiedFilter(filter);
+}
+
 // Global function for setting filter (called from onclick)
 function setUnifiedFilter(filter) {
     if (window.indexManager) {
@@ -984,12 +1053,17 @@ function setUnifiedFilter(filter) {
     });
     
     // Add active class only to the clicked filter button
-    const activeBtn = document.querySelector(`[data-filter="${filter}"]`);
+    const activeBtn = document.querySelector(`.component-type-filters [data-filter="${filter}"]`);
     if (activeBtn) {
         activeBtn.classList.add('active');
     }
     
     console.log('Component type filter selected:', filter);
+    
+    // Update URL with filter parameter
+    if (typeof updateURLWithFilter === 'function') {
+        updateURLWithFilter(filter);
+    }
     
     // Show category filters for the selected component type
     showCategoryFilters(filter);
@@ -1596,6 +1670,34 @@ function goToPage(page) {
     }
 }
 
+// Clean component name by removing extensions and formatting
+function getCleanComponentName(name) {
+    if (!name) {
+        return 'Unknown Component';
+    }
+    
+    let cleanName = name;
+    
+    // Remove .md extension if present
+    if (cleanName.endsWith('.md')) {
+        cleanName = cleanName.slice(0, -3);
+    }
+    
+    // Remove .json extension if present
+    if (cleanName.endsWith('.json')) {
+        cleanName = cleanName.slice(0, -5);
+    }
+    
+    // Convert kebab-case or snake_case to Title Case
+    cleanName = cleanName
+        .replace(/[-_]/g, ' ')
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ');
+        
+    return cleanName;
+}
+
 // Handle Add to Cart button click
 function handleAddToCart(name, path, type, category, buttonElement) {
     // Prevent event propagation to avoid card flip
@@ -1603,11 +1705,14 @@ function handleAddToCart(name, path, type, category, buttonElement) {
         window.event.stopPropagation();
     }
     
+    // Clean the component name for better display
+    const cleanName = getCleanComponentName(name);
+    
     const item = {
-        name: name,
+        name: cleanName,
         path: path,
         category: category,
-        description: `${name} - ${category}`
+        description: `${cleanName} - ${category}`
     };
     
     // Add to cart using the cart manager
@@ -1650,4 +1755,58 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     
     setTimeout(initCategories, 100);
+    
+    // Focus search input on page load and setup terminal cursor
+    setTimeout(() => {
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) {
+            searchInput.focus();
+            setupTerminalCursor();
+        }
+    }, 300); // Small delay to ensure DOM is fully loaded
 });
+
+// Terminal cursor functionality
+function setupTerminalCursor() {
+    const searchInput = document.getElementById('searchInput');
+    const cursor = document.getElementById('terminalCursor');
+    
+    if (!searchInput || !cursor) return;
+    
+    function updateCursorPosition() {
+        const promptWidth = 26; // Width of ">" prompt + extra space
+        
+        // If input has text, position cursor at the end of the text
+        if (searchInput.value.length > 0) {
+            // Create a temporary span to measure text width
+            const temp = document.createElement('span');
+            temp.style.visibility = 'hidden';
+            temp.style.position = 'absolute';
+            temp.style.whiteSpace = 'pre';
+            temp.style.font = window.getComputedStyle(searchInput).font;
+            temp.textContent = searchInput.value;
+            
+            document.body.appendChild(temp);
+            const textWidth = temp.getBoundingClientRect().width;
+            document.body.removeChild(temp);
+            
+            cursor.style.left = `${promptWidth + textWidth + 2}px`;
+        } else {
+            // If input is empty, position cursor right after the prompt with space
+            cursor.style.left = `${promptWidth}px`;
+        }
+    }
+    
+    // Update cursor position on input
+    searchInput.addEventListener('input', updateCursorPosition);
+    searchInput.addEventListener('focus', () => {
+        cursor.style.display = 'block';
+        updateCursorPosition();
+    });
+    searchInput.addEventListener('blur', () => {
+        cursor.style.display = 'none';
+    });
+    
+    // Initial position
+    updateCursorPosition();
+}
